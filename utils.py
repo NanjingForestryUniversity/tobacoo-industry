@@ -64,8 +64,8 @@ def split_xy(data: np.ndarray, labeled_img: np.ndarray, blk_sz: int, sensitivity
                             data y (block_num, ) 1 是杂质， 0是无杂质
     """
     assert (data.shape[0] == labeled_img.shape[0]) and (data.shape[1] == labeled_img.shape[1])
-    color_dict = {(0, 0, 255): 1, (255, 255, 255): 0, (0, 255, 0): 2, (255, 255, 0): 3, (0, 255, 255): 4}\
-                if color_dict is None else color_dict
+    color_dict = {(0, 0, 255): 1, (255, 255, 255): 0, (0, 255, 0): 2, (255, 255, 0): 3, (0, 255, 255): 4} \
+        if color_dict is None else color_dict
     class_img = np.zeros((labeled_img.shape[0], labeled_img.shape[1]), dtype=int)
     for color, class_idx in color_dict.items():
         truth_map = np.all(labeled_img == color, axis=2)
@@ -119,16 +119,20 @@ def visualization_evaluation(detector, data_path, selected_bands=None):
             rgb_img = np.asarray(img[..., [372, 241, 169]] * 255, dtype=np.uint8)
         else:
             rgb_img = np.asarray(img[..., [0, 1, 2]] * 255, dtype=np.uint8)
-        fig, axs = plt.subplots(1, 2)
+        mask_color = np.zeros_like(rgb_img)
+        mask_color[mask > 0] = (0, 0 , 255)
+        combine = cv2.addWeighted(rgb_img, 1, mask_color, 0.5, 0)
+        fig, axs = plt.subplots(1, 3)
         axs[0].imshow(rgb_img)
         axs[1].imshow(mask)
-        fig.suptitle(f"time spent {time_spent*1000:.2f} ms" + f"\n{image_path}")
+        axs[2].imshow(combine)
+        fig.suptitle(f"time spent {time_spent * 1000:.2f} ms" + f"\n{image_path}")
         plt.savefig(f"./dataset/{idx}.png", dpi=300)
         plt.show()
 
 
 def visualization_y(y_list, k_size):
-    mask = np.zeros((600//k_size, 1024//k_size), dtype=np.uint8)
+    mask = np.zeros((600 // k_size, 1024 // k_size), dtype=np.uint8)
     for idx, r in enumerate(y_list):
         row, col = idx // (1024 // k_size), idx % (1024 // k_size)
         mask[row, col] = r
@@ -172,8 +176,8 @@ def generate_tobacco_label(data, model_file, blk_sz, selected_bands):
     return x_list, y_list
 
 
-def generate_impurity_label(data, light_threshold, color_dict, split_line=0,  target_class_right=None,
-                            target_class_left=None,):
+def generate_impurity_label(data, light_threshold, color_dict, split_line=0, target_class_right=None,
+                            target_class_left=None, ):
     y_label = np.zeros((data.shape[0], data.shape[1]))
     for i in range(0, 600):
         for j in range(0, 1024):

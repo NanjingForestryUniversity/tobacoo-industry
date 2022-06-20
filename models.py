@@ -10,11 +10,6 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
 
-# def feature(x):
-#     x = x.reshape((x.shape[0], -1, x.shape[-1]))
-#     x = np.mean(x, axis=1)
-#     return x
-
 def feature(x):
     x = x.reshape((x.shape[0], -1))
     return x
@@ -22,16 +17,16 @@ def feature(x):
 
 def train_rf_and_report(train_x, train_y, test_x, test_y,
                         tree_num, save_path=None):
-    rfc = RandomForestClassifier(n_estimators=tree_num, random_state=42, class_weight={0:10, 1:10})
+    rfc = RandomForestClassifier(n_estimators=tree_num, random_state=42, class_weight={0: 10, 1: 10})
     rfc = rfc.fit(train_x, train_y)
     t1 = time.time()
     y_pred = rfc.predict(test_x)
     y_pred_binary = np.ones_like(y_pred)
     y_pred_binary[(y_pred == 0) | (y_pred == 1)] = 0
-    y_pred_binary[(y_pred >1)] = 2
+    y_pred_binary[(y_pred > 1)] = 2
     test_y_binary = np.ones_like(test_y)
     test_y_binary[(test_y == 0) | (test_y == 1)] = 0
-    test_y_binary[(test_y >1) ] = 2
+    test_y_binary[(test_y > 1)] = 2
     print("预测时间：", time.time() - t1)
     print("RFC训练模型评分：" + str(accuracy_score(train_y, rfc.predict(train_x))))
     print("RFC待测模型评分：" + str(accuracy_score(test_y, rfc.predict(test_x))))
@@ -52,10 +47,10 @@ def evaluation_and_report(model, test_x, test_y):
     y_pred = model.predict(test_x)
     y_pred_binary = np.ones_like(y_pred)
     y_pred_binary[(y_pred == 0) | (y_pred == 1)] = 0
-    y_pred_binary[(y_pred >1)] = 2
+    y_pred_binary[(y_pred > 1)] = 2
     test_y_binary = np.ones_like(test_y)
     test_y_binary[(test_y == 0) | (test_y == 1)] = 0
-    test_y_binary[(test_y >1) ] = 2
+    test_y_binary[(test_y > 1)] = 2
     print("预测时间：", time.time() - t1)
     print("RFC待测模型 accuracy：" + str(accuracy_score(test_y, model.predict(test_x))))
     print('RFC预测结果：' + str(y_pred))
@@ -67,12 +62,15 @@ def evaluation_and_report(model, test_x, test_y):
 
 
 def train_pca_rf(train_x, train_y, test_x, test_y, n_comp,
-                        tree_num, save_path=None):
-    rfc = RandomForestClassifier(n_estimators=tree_num, random_state=42,class_weight={0:100, 1:100})
-    pca = PCA(n_components=0.95)
-    rfc = rfc.fit(train_x, train_y)
+                 tree_num, save_path=None):
+    rfc = RandomForestClassifier(n_estimators=tree_num, random_state=42, class_weight={0: 100, 1: 100})
+    pca = PCA(n_components=n_comp)
+    pca = pca.fit(train_x)
+    pca_train_x = pca.transform(train_x)
+    rfc = rfc.fit(pca_train_x, train_y)
     t1 = time.time()
-    y_pred = rfc.predict(test_x)
+    pca_test_x = pca.transform(test_x)
+    y_pred = rfc.predict(pca_test_x)
     y_pred_binary = np.ones_like(y_pred)
     y_pred_binary[(y_pred == 0) | (y_pred == 1)] = 0
     y_pred_binary[(y_pred == 2) | (y_pred == 3) | (y_pred == 4)] = 2
@@ -80,8 +78,8 @@ def train_pca_rf(train_x, train_y, test_x, test_y, n_comp,
     test_y_binary[(test_y == 0) | (test_y == 1)] = 0
     test_y_binary[(test_y == 2) | (test_y == 3) | (test_y == 4)] = 2
     print("预测时间：", time.time() - t1)
-    print("RFC训练模型评分：" + str(accuracy_score(train_y, rfc.predict(train_x))))
-    print("RFC待测模型评分：" + str(accuracy_score(test_y, rfc.predict(test_x))))
+    print("RFC训练模型评分：" + str(accuracy_score(train_y, rfc.predict(pca_train_x))))
+    print("RFC待测模型评分：" + str(accuracy_score(test_y, rfc.predict(pca_test_x))))
     print('RFC预测结果：' + str(y_pred))
     print('---------------------------------------------------------------------------------------------------')
     print('RFC分类报告：\n' + str(classification_report(test_y, y_pred)))  # 生成一个小报告呀
@@ -133,10 +131,46 @@ class SpecDetector(object):
         return mask
 
     def mask_transform(self, result, dst_size):
-        mask_size = 600//self.blk_sz, 1024 // self.blk_sz
+        mask_size = 600 // self.blk_sz, 1024 // self.blk_sz
         mask = np.zeros(mask_size, dtype=np.uint8)
         for idx, r in enumerate(result):
             row, col = idx // mask_size[1], idx % mask_size[1]
             mask[row, col] = r
-        mask = mask.repeat(self.blk_sz, axis = 0).repeat(self.blk_sz, axis = 1)
+        mask = mask.repeat(self.blk_sz, axis=0).repeat(self.blk_sz, axis=1)
+        return mask
+
+
+class PcaSpecDetector(object):
+    def __init__(self, model_path, pca_path, blk_sz=8, channel_num=4):
+        self.blk_sz, self.channel_num = blk_sz, channel_num
+        if os.path.exists(model_path):
+            with open(model_path, "rb") as model_file:
+                self.clf = pickle.load(model_file)
+        else:
+            raise FileNotFoundError("Model File not found")
+        if os.path.exists(pca_path):
+            with open(pca_path, "rb") as pca_file:
+                self.pca = pickle.load(pca_file)
+        else:
+            raise FileNotFoundError("Pca File not found")
+
+    def predict(self, data):
+        blocks = split_x(data, blk_sz=self.blk_sz)
+        blocks = np.array(blocks)
+        features = feature(np.array(blocks))
+        y_pred = self.clf.predict(features)
+        y_pred_binary = np.ones_like(y_pred)
+        # classes merge
+        y_pred_binary[(y_pred == 0) | (y_pred == 1) | (y_pred == 3)] = 0
+        # transform to mask
+        mask = self.mask_transform(y_pred_binary, (1024, 600))
+        return mask
+
+    def mask_transform(self, result, dst_size):
+        mask_size = 600 // self.blk_sz, 1024 // self.blk_sz
+        mask = np.zeros(mask_size, dtype=np.uint8)
+        for idx, r in enumerate(result):
+            row, col = idx // mask_size[1], idx % mask_size[1]
+            mask[row, col] = r
+        mask = mask.repeat(self.blk_sz, axis=0).repeat(self.blk_sz, axis=1)
         return mask
