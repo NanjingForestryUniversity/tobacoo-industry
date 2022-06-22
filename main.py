@@ -11,6 +11,7 @@ selected_model = "rf_8x8_c4_400_13.model"
 def main():
     model_path = os.path.join(ROOT_DIR, "models", selected_model)
     detector = SpecDetector(model_path, blk_sz=8, channel_num=4)
+    _ = detector.predict(np.ones((600, 1024, 4)))
     total_len = nrows * ncols * nbands * 4
     if not os.access(img_fifo_path, os.F_OK):
         os.mkfifo(img_fifo_path, 0o777)
