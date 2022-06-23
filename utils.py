@@ -6,8 +6,11 @@ import os
 import time
 
 import matplotlib.pyplot as plt
+import tqdm
 
 from models import SpecDetector
+
+nrows, ncols = 256, 1024
 
 
 def trans_color(pixel: np.ndarray, color_dict: dict = None) -> int:
@@ -35,6 +38,8 @@ def determine_class(pixel_blk: np.ndarray, sensitivity=8) -> int:
     :param sensitivity: 敏感度
     :return:
     """
+    if (pixel_blk.shape[0] ==1) and (pixel_blk.shape[1] == 1):
+        return pixel_blk[0][0]
     defect_dict = {0: 0, 1: 0, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1}
     color_numbers = {cls: pixel_blk.shape[0] ** 2 - np.count_nonzero(pixel_blk - cls)
                      for cls in defect_dict.keys()}
@@ -55,7 +60,7 @@ def split_xy(data: np.ndarray, labeled_img: np.ndarray, blk_sz: int, sensitivity
     """
     Split the data into slices for classification.将数据划分为多个像素块,便于后续识别.
 
-    ;param data: image data, shape (num_rows x 1024 x num_channels)
+    ;param data: image data, shape (num_rows x ncols x num_channels)
     ;param labeled_img: RGB labeled img with respect to the image!
                         make sure that the defect is (255, 0, 0) and background is (255, 255, 255)
     ;param blk_sz: block size
@@ -71,8 +76,8 @@ def split_xy(data: np.ndarray, labeled_img: np.ndarray, blk_sz: int, sensitivity
         truth_map = np.all(labeled_img == color, axis=2)
         class_img[truth_map] = class_idx
     x_list, y_list = [], []
-    for i in range(0, 600 // blk_sz):
-        for j in range(0, 1024 // blk_sz):
+    for i in range(0, nrows // blk_sz):
+        for j in range(0, ncols // blk_sz):
             block_data = data[i * blk_sz: (i + 1) * blk_sz, j * blk_sz: (j + 1) * blk_sz, ...]
             block_label = class_img[i * blk_sz: (i + 1) * blk_sz, j * blk_sz: (j + 1) * blk_sz, ...]
             block_label = determine_class(block_label, sensitivity=sensitivity)
@@ -90,14 +95,14 @@ def split_x(data: np.ndarray, blk_sz: int) -> list:
     """
     Split the data into slices for classification.将数据划分为多个像素块,便于后续识别.
 
-    ;param data: image data, shape (num_rows x 1024 x num_channels)
+    ;param data: image data, shape (num_rows x ncols x num_channels)
     ;param blk_sz: block size
     ;param sensitivity: 最少有多少个杂物点能够被认为是杂物
     ;return data_x, data_y: sliced data x (block_num x num_charnnels x blk_sz x blk_sz)
     """
     x_list = []
-    for i in range(0, 600 // blk_sz):
-        for j in range(0, 1024 // blk_sz):
+    for i in range(0, nrows // blk_sz):
+        for j in range(0, ncols // blk_sz):
             block_data = data[i * blk_sz: (i + 1) * blk_sz, j * blk_sz: (j + 1) * blk_sz, ...]
             x_list.append(block_data)
     return x_list
@@ -105,7 +110,6 @@ def split_x(data: np.ndarray, blk_sz: int) -> list:
 
 def visualization_evaluation(detector, data_path, selected_bands=None):
     selected_bands = [76, 146, 216, 367, 383, 406] if selected_bands is None else selected_bands
-    nrows, ncols = 600, 1024
     image_paths = glob.glob(os.path.join(data_path, "calibrated*.raw"))
     for idx, image_path in enumerate(image_paths):
         with open(image_path, 'rb') as f:
@@ -132,9 +136,9 @@ def visualization_evaluation(detector, data_path, selected_bands=None):
 
 
 def visualization_y(y_list, k_size):
-    mask = np.zeros((600 // k_size, 1024 // k_size), dtype=np.uint8)
+    mask = np.zeros((nrows // k_size, ncols // k_size), dtype=np.uint8)
     for idx, r in enumerate(y_list):
-        row, col = idx // (1024 // k_size), idx % (1024 // k_size)
+        row, col = idx // (ncols // k_size), idx % (ncols // k_size)
         mask[row, col] = r
     fig, axs = plt.subplots()
     axs.imshow(mask)
@@ -142,16 +146,23 @@ def visualization_y(y_list, k_size):
 
 
 def read_raw_file(file_name, selected_bands=None):
+    print(f"reading file {file_name}")
     with open(file_name, "rb") as f:
-        data = np.frombuffer(f.read(), dtype=np.float32).reshape((600, -1, 1024)).transpose(0, 2, 1)
+        data = np.frombuffer(f.read(), dtype=np.float32).reshape((600, -1, ncols)).transpose(0, 2, 1)
     if selected_bands is not None:
         data = data[..., selected_bands]
     return data
 
 
+def write_raw_file(file_name, data: np.ndarray):
+    data = data.transpose(0, 2, 1).reshape((nrows, -1, ncols))
+    with open(file_name, 'wb') as f:
+        f.write(data.tobytes())
+
+
 def read_black_and_white_file(file_name):
     with open(file_name, "rb") as f:
-        data = np.frombuffer(f.read(), dtype=np.float32).reshape((1, 448, 1024)).transpose(0, 2, 1)
+        data = np.frombuffer(f.read(), dtype=np.float32).reshape((1, 448, ncols)).transpose(0, 2, 1)
     return data
 
 
@@ -166,8 +177,8 @@ def generate_tobacco_label(data, model_file, blk_sz, selected_bands):
     model = SpecDetector(model_path=model_file, blk_sz=blk_sz, channel_num=len(selected_bands))
     y_label = model.predict(data)
     x_list, y_list = [], []
-    for i in range(0, 600 // blk_sz):
-        for j in range(0, 1024 // blk_sz):
+    for i in range(0, nrows // blk_sz):
+        for j in range(0, ncols // blk_sz):
             if np.sum(np.sum(y_label[i * blk_sz: (i + 1) * blk_sz, j * blk_sz: (j + 1) * blk_sz, ...])) \
                     > 0:
                 block_data = data[i * blk_sz: (i + 1) * blk_sz, j * blk_sz: (j + 1) * blk_sz, ...]
@@ -179,8 +190,8 @@ def generate_tobacco_label(data, model_file, blk_sz, selected_bands):
 def generate_impurity_label(data, light_threshold, color_dict, split_line=0, target_class_right=None,
                             target_class_left=None, ):
     y_label = np.zeros((data.shape[0], data.shape[1]))
-    for i in range(0, 600):
-        for j in range(0, 1024):
+    for i in range(0, nrows):
+        for j in range(0, ncols):
             if np.sum(np.sum(data[i, j])) >= light_threshold:
                 if j > split_line:
                     y_label[i, j] = target_class_right
@@ -192,3 +203,21 @@ def generate_impurity_label(data, light_threshold, color_dict, split_line=0, tar
     axs[1].matshow(data[..., 0])
     plt.show()
     return pic
+
+
+def file_transform(input_dir, output_dir, selected_bands=None):
+    files = os.listdir(input_dir)
+    filtered_files = [file for file in files if file.endswith('.raw')]
+    os.makedirs(output_dir, mode=0o777, exist_ok=True)
+    for file_path in filtered_files:
+        input_path = os.path.join(input_dir, file_path)
+        output_path = os.path.join(output_dir, file_path)
+        data = read_raw_file(input_path, selected_bands=selected_bands)
+        write_raw_file(output_path, data)
+
+
+if __name__ == '__main__':
+    selected_bands = [127, 201, 202, 294]
+    input_dir, output_dir = r"/Volumes/LENOVO_USB_HDD/zhouchao/616/",\
+                            r"/Volumes/LENOVO_USB_HDD/zhouchao/616_cut/"
+    file_transform(input_dir=input_dir, output_dir=output_dir, selected_bands=selected_bands)
