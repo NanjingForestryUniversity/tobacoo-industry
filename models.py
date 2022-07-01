@@ -145,16 +145,16 @@ class SpecDetector(object):
         else:
             raise FileNotFoundError("Model File not found")
 
-    def predict(self, data, rigor_rate=70):
+    def predict(self, data, rigor_rate=100):
         blocks = split_x(data, blk_sz=self.blk_sz)
         blocks = np.array(blocks)
         features = feature(np.array(blocks))
-        print("Spec Detector", rigor_rate)
+        # print("Spec Detector", rigor_rate)
         y_pred = self.clf.predict_proba(features)
         y_pred, y_prob = np.argmax(y_pred, axis=1), np.max(y_pred, axis=1)
         y_pred_binary = np.zeros_like(y_pred)
         # classes merge
-        y_pred_binary[((y_pred == 2) | (y_pred > 3)) & (y_prob > (100 - rigor_rate) / 100.0)] = 1
+        y_pred_binary[((y_pred == 2) | (y_pred >= 3)) & (y_prob > (100 - rigor_rate) / 100.0)] = 1
         # transform to mask
         mask = self.mask_transform(y_pred_binary, (ncols, nrows))
         return mask
@@ -182,7 +182,7 @@ class PixelWisedDetector(object):
         features = data.reshape((-1, self.channel_num))
         y_pred = self.clf.predict(features, rigor_rate)
         y_pred_binary = np.ones_like(y_pred, dtype=np.uint8)
-        print("pixel detector", rigor_rate)
+        # print("pixel detector", rigor_rate)
         # classes merge
         y_pred_binary[(y_pred == 0) | (y_pred == 1) | (y_pred == 3)] = 0
         # transform to mask

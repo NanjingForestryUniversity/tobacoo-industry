@@ -24,6 +24,25 @@ def main(pxl_model_path=pxl_model_path, blk_model_path=blk_model_path):
     pxl_process = Process(target=pixel_model, args=(pxl_cmd_queue, pxl_img_queue, pxl_msk_queue, pxl_model_path, ))
     blk_process.start()
     pxl_process.start()
+    img = np.ones((nrows, ncols, nbands))
+    t1 = time.time()
+    pxl_img_queue.put(img)
+    blk_img_queue.put(img)
+    t2 = time.time()
+    while pxl_msk_queue.empty():
+        pass
+    pxl_msk = pxl_msk_queue.get()
+    while blk_msk_queue.empty():
+        pass
+    blk_msk = blk_msk_queue.get()
+    t3 = time.time()
+    mask = pxl_msk & blk_msk
+    t4 = time.time()
+    print(f"spent {(t2-t1)*1000:.2f} ms to put data")
+    print(f"spent {(t3-t2)*1000:.2f} ms to get data")
+    print(f"spent {(t4-t3)*1000:.2f} ms to perform 'and' operation")
+    print(f"predict success get mask shape: {mask.shape}")
+    print(f"Total Time: {(t4 - t1)*1000:.2f} ms")
     total_len = nrows * ncols * nbands * 4
     if not os.access(img_fifo_path, os.F_OK):
         os.mkfifo(img_fifo_path, 0o777)
@@ -41,9 +60,10 @@ def main(pxl_model_path=pxl_model_path, blk_model_path=blk_model_path):
             data_total = data
             data = b''
         os.close(fd_img)
-        t1 = time.time()
+        
         img = np.frombuffer(data_total, dtype=np.float32).reshape((nrows, nbands, -1)).transpose(0, 2, 1)
         print(f"get img shape {img.shape}")
+        t1 = time.time()
         pxl_img_queue.put(img)
         blk_img_queue.put(img)
         pxl_msk = pxl_msk_queue.get()
@@ -60,7 +80,7 @@ def main(pxl_model_path=pxl_model_path, blk_model_path=blk_model_path):
 def block_model(cmd_queue: Queue, img_queue: Queue, mask_queue: Queue, blk_model_path=blk_model_path):
     blk_model = SpecDetector(os.path.join(ROOT_DIR, "models", blk_model_path), blk_sz=8, channel_num=4)
     _ = blk_model.predict(np.ones((nrows, ncols, nbands)))
-    rigor_rate = 70
+    rigor_rate = 100
     while True:
         # deal with the cmd if cmd_queue is not empty
         if not cmd_queue.empty():
@@ -78,15 +98,23 @@ def block_model(cmd_queue: Queue, img_queue: Queue, mask_queue: Queue, blk_model
                         print(f"Load Model Failed! {e}")
         # deal with the img if img_queue is not empty
         if not img_queue.empty():
+            t1 = time.time()
             img = img_queue.get()
+            t2 = time.time()
             mask = blk_model.predict(img, rigor_rate)
+            t3 = time.time()
             mask_queue.put(mask)
+            t4 = time.time() 
+            print(f"block model spent:{(t2-t1)*1000:.2f}ms to get img")
+            print(f"block model spent:{(t3-t2)*1000:.2f}ms to run model")
+            print(f"block model spent:{(t4-t3)*1000:.2f}ms to put img")
+            print(f"block model spent:{(t4 - t1)*1000:.2f}ms")
 
 
 def pixel_model(cmd_queue: Queue, img_queue: Queue, mask_queue: Queue, pixel_model_path=pxl_model_path):
     pixel_model = PixelWisedDetector(os.path.join(ROOT_DIR, "models", pixel_model_path), blk_sz=1, channel_num=4)
     _ = pixel_model.predict(np.ones((nrows, ncols, nbands)))
-    rigor_rate = 70
+    rigor_rate = 100
     while True:
         # deal with the cmd if cmd_queue is not empty
         if not cmd_queue.empty():
@@ -104,10 +132,17 @@ def pixel_model(cmd_queue: Queue, img_queue: Queue, mask_queue: Queue, pixel_mod
                         print(f"Load Model Failed! {e}")
         # deal with the img if img_queue is not empty
         if not img_queue.empty():
+            t1 = time.time()
             img = img_queue.get()
+            t2 = time.time()
             mask = pixel_model.predict(img, rigor_rate)
+            t3 = time.time()
             mask_queue.put(mask)
-
-
+            t4 = time.time() 
+            print(f"pixel model spent:{(t2-t1)*1000:.2f}ms to get img")
+            print(f"pixel model spent:{(t3-t2)*1000:.2f}ms to run model")
+            print(f"pixel model spent:{(t4-t3)*1000:.2f}ms to put img")
+            print(f"pixel model spent:{(t4 - t1)*1000:.2f}ms")
+            
 if __name__ == '__main__':
     main()
